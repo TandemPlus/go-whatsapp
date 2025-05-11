@@ -40,6 +40,7 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
+		body["from_me"] = isFromMySelf(from)
 	}
 	if message.ID != "" {
 		body["message"] = message
