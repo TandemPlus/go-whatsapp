@@ -57,10 +57,20 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 	}
 
 	var extension string
-	if ext, err := mime.ExtensionsByType(extractedMedia.MimeType); err == nil && len(ext) > 0 {
+	var baseMimeType string = extractedMedia.MimeType
+
+	if parsedMimeType, _, err := mime.ParseMediaType(extractedMedia.MimeType); err == nil {
+		baseMimeType = parsedMimeType
+	}
+
+	if ext, err := mime.ExtensionsByType(baseMimeType); err == nil && len(ext) > 0 {
 		extension = ext[0]
-	} else if parts := strings.Split(extractedMedia.MimeType, "/"); len(parts) > 1 {
-		extension = "." + parts[len(parts)-1]
+	} else {
+		parts := strings.Split(baseMimeType, "/")
+		if len(parts) > 1 {
+			cleanPart := strings.Split(parts[len(parts)-1], ";")[0]
+			extension = "." + cleanPart
+		}
 	}
 
 	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
