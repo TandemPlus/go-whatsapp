@@ -5,30 +5,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// forwardToWebhook is a helper function to forward event to webhook url
-func forwardToWebhook(evt *events.Message) error {
-	logrus.Info("Forwarding event to webhook:", config.WhatsappWebhook)
-	payload, err := createPayload(evt)
-	if err != nil {
-		return err
-	}
+// forwardEventToWebhook is a generic helper function to forward any event payload to webhook URLs
+func forwardEventToWebhook(eventType string, payload map[string]interface{}) error {
+	logrus.Infof("Forwarding %s to webhook: %v", eventType, config.WhatsappWebhook)
 
 	for _, url := range config.WhatsappWebhook {
-		if err = submitWebhook(payload, url); err != nil {
+		if err := submitWebhook(payload, url); err != nil {
 			return err
 		}
 	}
 
-	logrus.Info("Event forwarded to webhook")
+	logrus.Infof("%s forwarded to webhook", strings.Title(eventType))
 	return nil
+}
+
+// forwardToWebhook is a helper function to forward event to webhook url
+func forwardToWebhook(evt *events.Message) error {
+	payload, err := createPayload(evt)
+	if err != nil {
+		return err
+	}
+	return forwardEventToWebhook("event", payload)
 }
 
 func createPayload(evt *events.Message) (map[string]interface{}, error) {
@@ -37,6 +44,9 @@ func createPayload(evt *events.Message) (map[string]interface{}, error) {
 	forwarded := buildForwarded(evt)
 
 	body := make(map[string]interface{})
+
+	// Add event type identifier for consistency with receipt webhooks
+	body["event_type"] = "message"
 
 	if from := evt.Info.SourceString(); from != "" {
 		body["from"] = from
@@ -166,4 +176,49 @@ func submitWebhook(payload map[string]interface{}, url string) error {
 	}
 
 	return pkgError.WebhookError(fmt.Sprintf("error when submit webhook after %d attempts: %v", attempt, err))
+}
+
+// forwardReceiptToWebhook is a helper function to forward receipt event to webhook url
+func forwardReceiptToWebhook(evt *events.Receipt) error {
+	payload, err := createReceiptPayload(evt)
+	if err != nil {
+		return err
+	}
+	return forwardEventToWebhook("receipt event", payload)
+}
+
+func createReceiptPayload(evt *events.Receipt) (map[string]interface{}, error) {
+	body := make(map[string]interface{})
+
+	// Add event type identifier
+	body["event_type"] = "receipt"
+
+	// Add message IDs that were read/delivered
+	if len(evt.MessageIDs) > 0 {
+		body["message_ids"] = evt.MessageIDs
+	}
+
+	// Add sender information
+	if sender := evt.SourceString(); sender != "" {
+		body["sender"] = sender
+	}
+
+	// Add receipt type (delivered/read)
+	var receiptType string
+	switch evt.Type {
+	case types.ReceiptTypeRead, types.ReceiptTypeReadSelf:
+		receiptType = "read"
+	case types.ReceiptTypeDelivered:
+		receiptType = "delivered"
+	default:
+		receiptType = "unknown"
+	}
+	body["type"] = receiptType
+
+	// Add timestamp
+	if timestamp := evt.Timestamp.Format(time.RFC3339); timestamp != "" {
+		body["timestamp"] = timestamp
+	}
+
+	return body, nil
 }

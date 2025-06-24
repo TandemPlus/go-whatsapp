@@ -261,6 +261,17 @@ func handleReceipt(evt *events.Receipt) {
 	} else if evt.Type == types.ReceiptTypeDelivered {
 		log.Infof("%s was delivered to %s at %s", evt.MessageIDs[0], evt.SourceString(), evt.Timestamp)
 	}
+
+	// Forward receipt to webhook if configured
+	if len(config.WhatsappWebhook) > 0 &&
+		!strings.Contains(evt.SourceString(), "broadcast") &&
+		!evt.IsFromMe {
+		go func(evt *events.Receipt) {
+			if err := forwardReceiptToWebhook(evt); err != nil {
+				logrus.Error("Failed forward receipt to webhook: ", err)
+			}
+		}(evt)
+	}
 }
 
 func handlePresence(evt *events.Presence) {
