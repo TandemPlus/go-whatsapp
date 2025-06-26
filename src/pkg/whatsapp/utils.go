@@ -54,6 +54,7 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
+		extractedMedia.OriginalFileName = media.GetFileName()
 	}
 
 	var extension string
@@ -73,7 +74,15 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 		}
 	}
 
-	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
+	// Generate file path with original filename if available
+	timestamp := time.Now().Unix()
+	if extractedMedia.OriginalFileName != "" {
+		sanitizedName := sanitizeFileName(extractedMedia.OriginalFileName)
+		extractedMedia.MediaPath = fmt.Sprintf("%s/%d_%s", storageLocation, timestamp, sanitizedName)
+	} else {
+		// Fallback to old naming scheme for non-document files
+		extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, timestamp, uuid.NewString(), extension)
+	}
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
@@ -89,6 +98,30 @@ func SanitizePhone(phone *string) {
 			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
 		}
 	}
+}
+
+// sanitizeFileName sanitizes filename for safe filesystem usage
+func sanitizeFileName(filename string) string {
+	if filename == "" {
+		return ""
+	}
+
+	// Remove dangerous characters for filesystem
+	dangerous := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	sanitized := filename
+	for _, char := range dangerous {
+		sanitized = strings.ReplaceAll(sanitized, char, "_")
+	}
+
+	// Remove leading/trailing dots and spaces
+	sanitized = strings.Trim(sanitized, ". ")
+
+	// Limit length to 100 characters to avoid filesystem issues
+	if len(sanitized) > 100 {
+		sanitized = sanitized[:100]
+	}
+
+	return sanitized
 }
 
 func GetPlatformName(deviceID int) string {

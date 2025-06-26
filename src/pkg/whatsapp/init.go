@@ -27,9 +27,10 @@ import (
 
 // Type definitions
 type ExtractedMedia struct {
-	MediaPath string `json:"media_path"`
-	MimeType  string `json:"mime_type"`
-	Caption   string `json:"caption"`
+	MediaPath        string `json:"media_path"`
+	MimeType         string `json:"mime_type"`
+	Caption          string `json:"caption"`
+	OriginalFileName string `json:"original_filename"`
 }
 
 type evtReaction struct {
