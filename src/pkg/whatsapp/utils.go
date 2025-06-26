@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -21,6 +22,36 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
+
+// extractFileExtension determines the file extension based on originalFileName and mimeType
+// Priority: originalFileName extension > MIME type > fallback to unknown format
+func extractFileExtension(originalFileName, mimeType string) string {
+	// First priority: extract extension from original filename
+	if originalFileName != "" {
+		if ext := filepath.Ext(originalFileName); ext != "" {
+			return ext
+		}
+	}
+
+	// Second priority: determine extension from MIME type
+	var baseMimeType string = mimeType
+	if parsedMimeType, _, err := mime.ParseMediaType(mimeType); err == nil {
+		baseMimeType = parsedMimeType
+	}
+
+	if extensions, err := mime.ExtensionsByType(baseMimeType); err == nil && len(extensions) > 0 {
+		return extensions[0]
+	}
+
+	// Fallback: construct extension from MIME type parts
+	parts := strings.Split(baseMimeType, "/")
+	if len(parts) > 1 {
+		cleanPart := strings.Split(parts[len(parts)-1], ";")[0]
+		return "." + cleanPart
+	}
+
+	return ".unknown"
+}
 
 // ExtractMedia is a helper function to extract media from whatsapp
 func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage) (extractedMedia ExtractedMedia, err error) {
@@ -40,6 +71,7 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 		return extractedMedia, fmt.Errorf("file size exceeds the maximum limit of %d bytes", maxFileSize)
 	}
 
+	var originalFileName string
 	switch media := mediaFile.(type) {
 	case *waE2E.ImageMessage:
 		extractedMedia.MimeType = media.GetMimetype()
@@ -54,35 +86,13 @@ func ExtractMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessag
 	case *waE2E.DocumentMessage:
 		extractedMedia.MimeType = media.GetMimetype()
 		extractedMedia.Caption = media.GetCaption()
-		extractedMedia.OriginalFileName = media.GetFileName()
+		originalFileName = media.GetFileName()
 	}
 
-	var extension string
-	var baseMimeType string = extractedMedia.MimeType
+	// Use enhanced extension detection with priority-based logic
+	extension := extractFileExtension(originalFileName, extractedMedia.MimeType)
 
-	if parsedMimeType, _, err := mime.ParseMediaType(extractedMedia.MimeType); err == nil {
-		baseMimeType = parsedMimeType
-	}
-
-	if ext, err := mime.ExtensionsByType(baseMimeType); err == nil && len(ext) > 0 {
-		extension = ext[0]
-	} else {
-		parts := strings.Split(baseMimeType, "/")
-		if len(parts) > 1 {
-			cleanPart := strings.Split(parts[len(parts)-1], ";")[0]
-			extension = "." + cleanPart
-		}
-	}
-
-	// Generate file path with original filename if available
-	timestamp := time.Now().Unix()
-	if extractedMedia.OriginalFileName != "" {
-		sanitizedName := sanitizeFileName(extractedMedia.OriginalFileName)
-		extractedMedia.MediaPath = fmt.Sprintf("%s/%d_%s", storageLocation, timestamp, sanitizedName)
-	} else {
-		// Fallback to old naming scheme for non-document files
-		extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, timestamp, uuid.NewString(), extension)
-	}
+	extractedMedia.MediaPath = fmt.Sprintf("%s/%d-%s%s", storageLocation, time.Now().Unix(), uuid.NewString(), extension)
 	err = os.WriteFile(extractedMedia.MediaPath, data, 0600)
 	if err != nil {
 		return extractedMedia, err
@@ -98,30 +108,6 @@ func SanitizePhone(phone *string) {
 			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)
 		}
 	}
-}
-
-// sanitizeFileName sanitizes filename for safe filesystem usage
-func sanitizeFileName(filename string) string {
-	if filename == "" {
-		return ""
-	}
-
-	// Remove dangerous characters for filesystem
-	dangerous := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-	sanitized := filename
-	for _, char := range dangerous {
-		sanitized = strings.ReplaceAll(sanitized, char, "_")
-	}
-
-	// Remove leading/trailing dots and spaces
-	sanitized = strings.Trim(sanitized, ". ")
-
-	// Limit length to 100 characters to avoid filesystem issues
-	if len(sanitized) > 100 {
-		sanitized = sanitized[:100]
-	}
-
-	return sanitized
 }
 
 func GetPlatformName(deviceID int) string {
